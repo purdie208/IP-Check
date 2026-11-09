@@ -415,12 +415,20 @@ __SHARED__
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock x:Name="TxtStatus" Foreground="{{MUTED}}" FontSize="12.5" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,16,0"/>
-        <Button x:Name="BtnCopy" Grid.Column="1" Style="{StaticResource SubtleButton}" IsEnabled="False" ToolTip="Copy a plain-text summary for a ticket or email">
-          <StackPanel Orientation="Horizontal">
-            <TextBlock Style="{StaticResource Glyph}" Text="&#xE8C8;" FontSize="14" Margin="0,0,8,0"/>
-            <TextBlock Text="Copy report"/>
-          </StackPanel>
-        </Button>
+        <StackPanel Grid.Column="1" Orientation="Horizontal">
+          <Button x:Name="BtnCopy" Style="{StaticResource SubtleButton}" IsEnabled="False" Margin="0,0,8,0" ToolTip="Copy a plain-text summary for a ticket or email">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource Glyph}" Text="&#xE8C8;" FontSize="14" Margin="0,0,8,0"/>
+              <TextBlock Text="Copy report"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="BtnDiscord" Style="{StaticResource AccentButton}" Height="34" Padding="16,0,16,0" IsEnabled="False" ToolTip="Copy a formatted summary to paste into a Discord message">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource Glyph}" Text="&#xE8BD;" FontSize="14" Margin="0,0,8,0" Foreground="{{ACCENTTEXT}}"/>
+              <TextBlock Text="Copy for Discord"/>
+            </StackPanel>
+          </Button>
+        </StackPanel>
       </Grid>
     </StackPanel>
   </ScrollViewer>
@@ -868,6 +876,30 @@ function Format-Miles([double]$m) {
 
 function Format-Coord($v) { return ([double]$v).ToString('0.####', $script:Inv) }
 
+# Emoji are built from code points so this file stays plain ASCII (safe in Windows PowerShell 5.1).
+function E([int[]]$cp) { return (($cp | ForEach-Object { [char]::ConvertFromUtf32($_) }) -join '') }
+$script:Em = @{
+    Green = E 0x1F7E2; Yellow = E 0x1F7E1; Red = E 0x1F534
+    Ok = E 0x2705; No = E 0x274C; Warn = E 0x26A0, 0xFE0F; Pin = E 0x1F4CD
+    Arrow = E 0x2192; Mid = E 0x00B7; Approx = E 0x2248
+}
+
+# Escape characters Discord would treat as formatting (names with _ or * etc.)
+function Format-DiscordSafe([string]$s) {
+    if ([string]::IsNullOrEmpty($s)) { return $s }
+    return [regex]::Replace($s, '([\\*_~`|\[\]])', '\$1')
+}
+
+function Get-DiscordFlag($c, [string]$yesKind) {
+    # yesKind: 'bad' -> red X, 'warn' -> warning sign
+    if ($c.True -gt 0) {
+        $m = $script:Em.No; if ($yesKind -eq 'warn') { $m = $script:Em.Warn }
+        return "$m Yes ($($c.True) of $($c.Total) sources)"
+    }
+    if ($c.False -gt 0) { return "$($script:Em.Ok) No" }
+    return 'Unknown'
+}
+
 function Join-Place($city, $region, $country) {
     $parts = @()
     foreach ($p in @($city, $region, $country)) { if ($p -and ($parts -notcontains $p)) { $parts += $p } }
@@ -984,6 +1016,7 @@ function Clear-Results {
     $script:UI.SourcesPanel.Children.Clear()
     $script:UI.BtnMap.Visibility = 'Collapsed'
     $script:UI.BtnCopy.IsEnabled = $false
+    $script:UI.BtnDiscord.IsEnabled = $false
 }
 
 function Update-IdleStatus {
@@ -1345,6 +1378,58 @@ function Show-Results($results, [double]$elapsed) {
     $script:LastReport = $sb.ToString()
     $script:UI.BtnCopy.IsEnabled = $true
 
+    # ---- Discord-formatted report ----
+    $em = $script:Em
+    $dot = $em.Green; if ($tone -eq 'warn') { $dot = $em.Yellow } elseif ($tone -eq 'bad') { $dot = $em.Red }
+    $dc = New-Object System.Collections.ArrayList
+    [void]$dc.Add("### $dot $title")
+    [void]$dc.Add("**IP:** ``$ip``")
+    if ($cur.Note) { [void]$dc.Add("**Employee:** $(Format-DiscordSafe $cur.Note)") }
+    $vpnLine = 'Unknown'
+    if ($sec.Count -gt 0) {
+        if ($anon.Count -gt 0) { $vpnLine = "$($em.No) **Yes** ($($anon.Count) of $($sec.Count) sources)" }
+        else { $vpnLine = "$($em.Ok) No ($($sec.Count) sources)" }
+    }
+    if ($operator) { $vpnLine += " $($em.Mid) provider: **$(Format-DiscordSafe $operator)**" }
+    [void]$dc.Add("**VPN / proxy:** $vpnLine")
+    [void]$dc.Add("**Datacenter:** $(Get-DiscordFlag $hostC 'warn')")
+    if ($relayC.True -gt 0) { [void]$dc.Add("**Private Relay:** $(Get-DiscordFlag $relayC 'warn')") }
+    if ($locText) {
+        $mapUrl = "https://www.openstreetmap.org/?mlat={0}&mlon={1}#map=10/{0}/{1}" -f (Format-Coord $prim.Lat), (Format-Coord $prim.Lon)
+        [void]$dc.Add("**Location:** $($em.Pin) [$(Format-DiscordSafe $locText)](<$mapUrl>)")
+    } else {
+        [void]$dc.Add('**Location:** not available')
+    }
+    if ($cur.Expected) {
+        $stated = Format-DiscordSafe $cur.Expected
+        if ($null -ne $distPrim) {
+            $m = $em.Ok; if ($distMin -gt $threshold) { $m = $em.Warn }
+            [void]$dc.Add("**Stated location:** $stated $($em.Arrow) $($em.Approx)$(Format-Miles $distPrim) away $m")
+        } else {
+            [void]$dc.Add("**Stated location:** $stated $($em.Arrow) couldn't be located")
+        }
+    }
+    $ispLine = 'unknown'
+    if ($isp) { $ispLine = Format-DiscordSafe $isp }
+    if ($asn) { $ispLine += " ($asn)" }
+    if ($ctype) { $ispLine += " $($em.Mid) $ctype" }
+    [void]$dc.Add("**ISP:** $ispLine")
+    $srcParts = @($all | ForEach-Object {
+        if (-not $_.Ok) { "$($_.Source) $($em.Warn) error" }
+        elseif (-not $_.HasSecurity) { "$($_.Source) (location only)" }
+        elseif ($_.Vpn -eq $true -or $_.Proxy -eq $true -or $_.Tor -eq $true) { "$($_.Source) $($em.No)" }
+        elseif ($_.Relay -eq $true -or $_.Hosting -eq $true) { "$($_.Source) $($em.Warn)" }
+        else { "$($_.Source) $($em.Ok)" }
+    })
+    $sub = @()
+    if ($coordText) { $sub += "$coordText $($em.Mid) approximate, city level" }
+    if ($cur.Expected -and $null -ne $distPrim) { $sub += "limit $threshold mi" }
+    $sub += "checked $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+    [void]$dc.Add("-# Sources: $($srcParts -join " $($em.Mid) ")")
+    [void]$dc.Add("-# $($sub -join " $($em.Mid) ")")
+    $script:LastDiscord = ($dc -join "`n")
+    $script:UI.BtnDiscord.IsEnabled = $true
+
     if ($script:Settings.SaveHistory -and $ok.Count -gt 0) {
         try {
             if (-not (Test-Path $script:AppDir)) { New-Item -ItemType Directory -Path $script:AppDir -Force | Out-Null }
@@ -1435,7 +1520,7 @@ try {
     if ($icon) { $script:Win.Icon = $icon }
 
     $script:UI = @{}
-    foreach ($n in 'TxtIp', 'TxtExpected', 'TxtNote', 'BtnCheck', 'BtnSettings', 'BtnHistory', 'BtnCopy', 'BtnMap',
+    foreach ($n in 'TxtIp', 'TxtExpected', 'TxtNote', 'BtnCheck', 'BtnSettings', 'BtnHistory', 'BtnCopy', 'BtnDiscord', 'BtnMap',
                    'VerdictCard', 'VerdictIcon', 'VerdictTitle', 'VerdictDetail', 'Busy',
                    'PanelConn', 'PanelLoc', 'PanelNet', 'SourcesPanel', 'TxtStatus') {
         $script:UI[$n] = $script:Win.FindName($n)
@@ -1474,6 +1559,14 @@ try {
             try {
                 [System.Windows.Clipboard]::SetText($script:LastReport)
                 $script:UI.TxtStatus.Text = 'Report copied to the clipboard.'
+            } catch { $script:UI.TxtStatus.Text = "Couldn't access the clipboard - try again." }
+        }
+    })
+    $script:UI.BtnDiscord.Add_Click({
+        if ($script:LastDiscord) {
+            try {
+                [System.Windows.Clipboard]::SetText($script:LastDiscord)
+                $script:UI.TxtStatus.Text = 'Copied for Discord - paste it into your message.'
             } catch { $script:UI.TxtStatus.Text = "Couldn't access the clipboard - try again." }
         }
     })

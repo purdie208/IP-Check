@@ -1,58 +1,103 @@
-IP CHECK - VPN, location and ISP lookup for Windows 11
-======================================================
+# IP Check
 
-GETTING STARTED
-1. Unzip the folder somewhere permanent, e.g. C:\Tools\IPCheck
-2. Right-click the zip first > Properties > tick "Unblock" (stops SmartScreen nagging), then unzip.
-3. Double-click "IP Check.bat".
-   Tip: right-click "IP Check.bat" > Show more options > Send to > Desktop (create shortcut).
+A Windows 11 desktop tool for IT staff that checks a public IP address for **VPN / proxy use**, shows its **approximate location** and **ISP**, and, if you enter where the person says they are, how far that is from the IP's location.
 
-Nothing to install - it uses the PowerShell and .NET that ship with Windows 10/11.
-It follows your Windows light/dark mode.
+It's built for checking that remote staff and new hires are connecting from roughly where they say they are, without a VPN.
 
-HOW TO USE
-- IP address: paste the person's public IP (from sign-in logs, your VPN/RDP gateway,
-  or have them visit a "what is my IP" site). You can paste a whole log line; it pulls the IP out.
-- Where they say they are (optional): "City, State" or a 5-digit ZIP. The app measures the
-  distance and flags anything beyond your limit (100 miles by default, change it in Settings).
-- Employee / ticket (optional): saved with the lookup in history and the copied report.
-- Copy report puts a plain-text summary on the clipboard for a ticket or email.
-- History opens every lookup as a CSV (Excel).
+- Native Windows UI that follows your light / dark mode
+- Nothing to install: runs on the PowerShell 5.1 and .NET that ship with Windows 10/11
+- Asks several IP-intelligence services at once and combines their answers
+- One-click reports in plain text or **Discord format**
 
-RESULT COLOURS
-- Green  : no VPN/proxy found, and within the distance limit
-- Yellow : datacenter/hosting IP, Apple Private Relay, location mismatch, or VPN status unknown
-- Red    : at least one source says VPN, proxy or Tor
+## Features
 
-DATA SOURCES (Settings)
-Works out of the box with proxycheck.io (100 lookups/day without a key) and ipwho.is.
-More sources = more reliable VPN detection. All of these have free sign-ups:
+| Area | What you get |
+|---|---|
+| **VPN detection** | VPN, proxy, Tor, Apple iCloud Private Relay and datacenter/hosting flags, with the VPN provider's name when known (e.g. NordVPN) and a risk score |
+| **Location** | City, region, country, postal code and coordinates, plus a Map button (OpenStreetMap). Shows whether the sources agree |
+| **Distance check** | Enter "City, State" or a ZIP and the IP is flagged if it's beyond your mile limit (default 100) |
+| **ISP** | ISP, organization, ASN and connection type (residential, business, wireless, hosting) |
+| **Overall result** | Green = clean, yellow = datacenter / Private Relay / location mismatch / unknown, red = VPN, proxy or Tor detected |
+| **Reports** | *Copy report* (plain text for tickets/email) and *Copy for Discord* (bold labels, status emoji, map link) |
+| **History** | Every lookup saved to a local CSV that opens in Excel |
 
-  proxycheck.io   free key -> 1,000/day          https://proxycheck.io
-  vpnapi.io       free key -> 1,000/day          https://vpnapi.io
-  IPQualityScore  free account, monthly limit    https://www.ipqualityscore.com
-  ip-api.com      free endpoint is NON-COMMERCIAL only; for company use buy a Pro key
-                  (off by default)               https://members.ip-api.com
+## Getting started
 
-Paste a key into Settings and that source turns on. Keys are encrypted with your Windows
-account (DPAPI) - copying settings.json to another PC or user won't expose them.
+1. Download the repo (**Code → Download ZIP**) or clone it.
+2. If you downloaded the ZIP: right-click it → **Properties** → tick **Unblock** → OK, then extract it.
+3. Double-click **`IP Check.bat`**.
 
-GOOD TO KNOW
-- IP geolocation is approximate (usually city level). It is never a street address.
-  Mobile/cellular and satellite IPs can map hundreds of miles from the real location.
-- No VPN database is complete. A "clean" result means no source recognised the IP,
-  not a guarantee. Corporate VPNs, residential proxies and new VPN servers can slip through.
-- A datacenter/hosting result with no VPN flag usually still means VPN, proxy or cloud desktop.
+To launch it from PowerShell instead:
 
-FILES (all in %APPDATA%\IPCheck)
-  settings.json   your settings (keys encrypted)
-  history.csv     lookup history (IPs, names you typed, results) - stays on this PC
-  error.log       written only if something goes wrong
+```powershell
+powershell -STA -ExecutionPolicy Bypass -File .\IPCheck.ps1
+# optionally pre-fill an IP:
+powershell -STA -ExecutionPolicy Bypass -File .\IPCheck.ps1 -Ip 203.0.113.45
+```
 
-TROUBLESHOOTING
-- Window doesn't appear: open PowerShell and run
-    powershell -STA -ExecutionPolicy Bypass -File "C:\Tools\IPCheck\IPCheck.ps1"
-  to see any error, or check %APPDATA%\IPCheck\error.log
-- A source shows "limit reached": its daily quota is used up; add/upgrade that key.
-- Company proxy/firewall: the app uses your Windows proxy settings; the hosts it needs are
-  proxycheck.io, vpnapi.io, ipqualityscore.com, ip-api.com, ipwho.is, nominatim.openstreetmap.org
+## Usage
+
+1. **IP address:** paste the person's public IP. A whole log line works too; the IP is pulled out of it.
+2. **Where they say they are** (optional): `City, State` or a 5-digit ZIP.
+3. **Employee / ticket** (optional): stored in history and included in reports.
+4. Press **Check IP** (or Enter).
+5. Use **Copy for Discord** or **Copy report** to share the result.
+
+Example Discord output:
+
+```
+### 🟢 No VPN or proxy detected
+**IP:** `203.0.113.45`
+**VPN / proxy:** ✅ No (3 sources)
+**Datacenter:** ✅ No
+**Location:** 📍 [Kirkland, Washington, US](<map link>)
+**Stated location:** Kirkland, WA → ≈2 mi away ✅
+**ISP:** Example ISP (AS64500) · Residential
+-# Sources: IPQualityScore ✅ · proxycheck.io ✅ · vpnapi.io ✅ · ipwho.is (location only)
+-# 47.68, -122.2 · approximate, city level · limit 100 mi · checked 2026-11-09 08:00
+```
+
+## Data sources
+
+Works right away with **proxycheck.io** (no key) and **ipwho.is**. Add free API keys in **Settings** for more reliable detection: a source turns on as soon as you paste its key.
+
+| Service | Used for | Free tier |
+|---|---|---|
+| [proxycheck.io](https://proxycheck.io) | VPN / proxy / Tor, location, ISP | 100/day without a key, 1,000/day with a free key |
+| [vpnapi.io](https://vpnapi.io) | VPN / proxy / Tor / Private Relay | 1,000/day with a free key |
+| [IPQualityScore](https://www.ipqualityscore.com) | VPN / proxy / Tor, fraud score | Monthly allowance with a free account |
+| [ip-api.com](https://ip-api.com) | Proxy and hosting flags, location, ISP | Free endpoint is **non-commercial only**; use a Pro key for business use (off by default) |
+| [ipwho.is](https://ipwhois.io) | Second opinion on location and ISP | 1,000/day, no key |
+| [Nominatim (OpenStreetMap)](https://nominatim.org) | Turns the stated location into coordinates | Free, light use |
+
+API keys are encrypted with Windows DPAPI for the current user, so they can't be read from another account or PC.
+
+## Files and privacy
+
+Everything is stored locally in `%APPDATA%\IPCheck`:
+
+| File | Contents |
+|---|---|
+| `settings.json` | Settings and encrypted API keys |
+| `history.csv` | Lookup history (IPs, names/tickets you entered, results) |
+| `error.log` | Only written if something goes wrong |
+
+Nothing is stored in the app folder, so the repo never picks up keys or history. Lookups send only the IP address (and the stated location, for geocoding) to the services above.
+
+## Limitations
+
+- **Location is approximate.** IP geolocation is city level at best and never a street address. Mobile, cellular and satellite IPs can map hundreds of miles from the user.
+- **No VPN database is complete.** A clean result means no source recognized the IP, not a guarantee. A datacenter result with no VPN flag usually still means a VPN, proxy or cloud desktop.
+- Use a red or yellow result as a reason to follow up, not as proof on its own.
+
+## Troubleshooting
+
+- **Window doesn't open:** run the PowerShell command above to see the error, or check `%APPDATA%\IPCheck\error.log`.
+- **A source says "limit reached":** its daily quota is used up. Add or upgrade that key.
+- **Behind a company proxy/firewall:** allow `proxycheck.io`, `vpnapi.io`, `ipqualityscore.com`, `ip-api.com`, `ipwho.is` and `nominatim.openstreetmap.org`.
+
+## Requirements
+
+Windows 10 or 11 with Windows PowerShell 5.1 (built in). Internet access to the services above.
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.
